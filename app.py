@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 # Shopify API credentials
 PASSWORD = os.environ.get("SHOPIFY_API_TOKEN")  # Admin API Access Token
-SHOP_NAME = "hhwh1d-2p.myshopify.com"  # Twój sklep Shopify
+SHOP_NAME = "hhwh1d-2p.myshopify.com"  # Oryginalny adres sklepu Shopify
 BASE_URL = f"https://{SHOP_NAME}/admin/api/2023-01/"
 
 @app.route('/')
@@ -20,7 +20,7 @@ def modify_theme():
         data = request.get_json()
         if data is None:
             return jsonify({"error": "Invalid JSON or missing Content-Type header"}), 400
-        
+
         # Sprawdź, czy prompt dotyczy zmiany tła
         prompt = data.get("prompt", "")
         if "background color" in prompt and "theme.liquid" in prompt:
@@ -49,13 +49,15 @@ def modify_theme():
         if not theme_id:
             return jsonify({"error": "Could not fetch theme ID"}), 400
 
-        # Wyślij zmiany do Shopify
+        # Przygotowanie danych do wysłania
         asset_data = {
             "asset": {
                 "key": asset_key,
                 "value": new_content
             }
         }
+
+        # Wyślij zmiany do Shopify
         response = requests.put(BASE_URL + f"themes/{theme_id}/assets.json", json=asset_data, headers={
             "X-Shopify-Access-Token": PASSWORD
         })

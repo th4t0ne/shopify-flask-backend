@@ -12,7 +12,7 @@ BASE_URL = f"https://{SHOP_NAME}/admin/api/{API_VERSION}/"
 
 @app.route('/')
 def home():
-    return "Welcome to the Shopify Flask Backend! Use /modify-theme to send requests.", 200
+    return "Welcome to the Shopify Flask Backend! Use /modify-theme or /get-theme to interact with Shopify.", 200
 
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
@@ -58,78 +58,12 @@ def modify_theme():
         return jsonify({"error": "Internal server error"}), 500
 
 
-def generate_content(prompt):
+@app.route('/get-theme', methods=['GET'])
+def get_theme():
     """
-    Generate Liquid template content based on the user's prompt.
-    """
-    try:
-        if "change the background color to" in prompt:
-            bg_color = prompt.split("to")[1].strip()
-            return f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                {{% content_for_header %}}
-                <style>
-                    body {{
-                        background-color: {bg_color};
-                    }}
-                </style>
-            </head>
-            <body>
-                {{% content_for_layout %}}
-            </body>
-            </html>
-            """
-        elif "add custom header" in prompt:
-            header_content = prompt.split("header")[1].strip()
-            return f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                {{% content_for_header %}}
-                <style>
-                    header {{
-                        background-color: #000;
-                        color: #fff;
-                        padding: 10px;
-                        text-align: center;
-                    }}
-                </style>
-            </head>
-            <body>
-                <header>{header_content}</header>
-                {{% content_for_layout %}}
-            </body>
-            </html>
-            """
-        else:
-            return None
-    except Exception as e:
-        app.logger.error(f"Error in generate_content: {e}")
-        return None
-
-
-def get_theme_id():
-    """
-    Fetch the ID of the main theme from Shopify API.
+    Fetch the current content of the theme.liquid file from Shopify.
     """
     try:
-        response = requests.get(BASE_URL + "themes.json", headers={
-            "X-Shopify-Access-Token": PASSWORD
-        })
-        if response.status_code == 200:
-            themes = response.json().get("themes", [])
-            for theme in themes:
-                if theme.get("role") == "main":
-                    return theme.get("id")
-        app.logger.error(f"Error fetching theme ID: {response.json()}")
-        return None
-    except Exception as e:
-        app.logger.error(f"Error fetching theme ID: {e}")
-        return None
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        theme_id = get_theme_id()  # Fetch the ID of the main theme
+        if not theme_id:
+            return jsonify({"error": "Could not fetc

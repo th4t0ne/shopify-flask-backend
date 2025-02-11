@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-import base64
 
 app = Flask(__name__)
 
@@ -9,6 +8,10 @@ app = Flask(__name__)
 PASSWORD = os.environ.get("SHOPIFY_API_TOKEN")  # Admin API Access Token
 SHOP_NAME = "hhwh1d-2p.myshopify.com"  # Oryginalny adres sklepu Shopify
 BASE_URL = f"https://{SHOP_NAME}/admin/api/2023-01/"
+
+@app.route('/')
+def home():
+    return "Welcome to the Shopify Flask Backend! Use /modify-theme to send requests.", 200
 
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
@@ -25,6 +28,7 @@ def modify_theme():
         # Interpretacja promptów
         if "change the background color to" in prompt:
             bg_color = prompt.split("to")[1].strip()
+            # Generowanie poprawnego kodu HTML
             new_content = f"""
             <!DOCTYPE html>
             <html>
@@ -69,61 +73,9 @@ def modify_theme():
         app.logger.error(f"Error in /modify-theme: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-
-        # Pobierz ID głównego motywu
-        theme_id = get_theme_id()
-        if not theme_id:
-            return jsonify({"error": "Could not fetch theme ID"}), 400
-
-        # Przygotowanie danych do wysłania
-        asset_data = {
-            "asset": {
-                "key": asset_key,
-                "value": new_content
-            }
-        }
-
-        # Wyślij zmiany do Shopify
-        response = requests.put(BASE_URL + f"themes/{theme_id}/assets.json", json=asset_data, headers={
-            "X-Shopify-Access-Token": PASSWORD
-        })
-        if response.status_code == 200:
-            return jsonify({"message": f"Theme asset '{asset_key}' updated successfully!"})
-        else:
-            return jsonify({"error": response.json()}), 400
-    except Exception as e:
-        app.logger.error(f"Error in /modify-theme: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/upload-image', methods=['POST'])
-def upload_image():
-    try:
-        # Odbierz plik graficzny
-        file = request.files.get('file')
-        if not file:
-            return jsonify({"error": "No file provided"}), 400
-
-        # Prześlij plik do Shopify
-        encoded_file = base64.b64encode(file.read()).decode('utf-8')
-        response = requests.put(BASE_URL + "assets.json", json={
-            "asset": {
-                "key": f"assets/{file.filename}",
-                "attachment": encoded_file
-            }
-        }, headers={
-            "X-Shopify-Access-Token": PASSWORD
-        })
-
-        if response.status_code == 200:
-            return jsonify({"message": f"Image '{file.filename}' uploaded successfully!"})
-        else:
-            return jsonify({"error": response.json()}), 400
-    except Exception as e:
-        app.logger.error(f"Error in /upload-image: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
 def get_theme_id():
     try:
+        # Wysłanie żądania do Shopify API w celu pobrania listy motywów
         response = requests.get(BASE_URL + "themes.json", headers={
             "X-Shopify-Access-Token": PASSWORD
         })

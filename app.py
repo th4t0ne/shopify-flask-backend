@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import requests
 import os
+import base64
 
 app = Flask(__name__)
 
@@ -11,33 +12,72 @@ BASE_URL = f"https://{SHOP_NAME}/admin/api/2023-01/"
 
 @app.route('/')
 def home():
-    return "Welcome to the Shopify Flask Backend! Use /modify-theme to send requests.", 200
+    return "Welcome to the Shopify Flask Backend! Use /modify-theme or /upload-image to send requests.", 200
 
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
     try:
         # Pobierz dane JSON z zapytania
         data = request.get_json()
-        if data is None:
+        if not data:
             return jsonify({"error": "Invalid JSON or missing Content-Type header"}), 400
 
-        # Sprawdź, czy prompt dotyczy zmiany tła
-        prompt = data.get("prompt", "")
-        if "background color" in prompt and "theme.liquid" in prompt:
-            asset_key = "layout/theme.liquid"
-            new_content = """
+        prompt = data.get("prompt", "").lower()
+        asset_key = "layout/theme.liquid"
+        new_content = ""
+
+        # Przetwarzanie promptów
+        if "change the header to" in prompt:
+            header_color = prompt.split("to")[1].strip()
+            new_content = f"""
             <!DOCTYPE html>
             <html>
             <head>
-                {{ content_for_header }}
+                {{% content_for_header %}}
                 <style>
-                    body {
-                        background-color: black;
-                    }
+                    h1 {{
+                        color: {header_color};
+                    }}
                 </style>
             </head>
             <body>
-                {{ content_for_layout }}
+                <h1>Welcome to our Store</h1>
+                {{% content_for_layout %}}
+            </body>
+            </html>
+            """
+        elif "add this image to the homepage" in prompt:
+            image_url = data.get("image_url", "")
+            if not image_url:
+                return jsonify({"error": "Image URL is required for this prompt"}), 400
+            new_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                {{% content_for_header %}}
+            </head>
+            <body>
+                <h1>Welcome to our Store</h1>
+                <img src="{image_url}" alt="Homepage Image" />
+                {{% content_for_layout %}}
+            </body>
+            </html>
+            """
+        elif "change the background color to" in prompt:
+            bg_color = prompt.split("to")[1].strip()
+            new_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                {{% content_for_header %}}
+                <style>
+                    body {{
+                        background-color: {bg_color};
+                    }}
+                </style>
+            </head>
+            <body>
+                {{% content_for_layout %}}
             </body>
             </html>
             """
@@ -69,28 +109,46 @@ def modify_theme():
         app.logger.error(f"Error in /modify-theme: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
+@app.route('/upload-image', methods=['POST'])
+def upload_image():
+    try:
+        # Odbierz plik graficzny
+        file = request.files.get('file')
+        if not file:
+            return jsonify({"error": "No file provided"}), 400
+
+        # Prześlij plik do Shopify
+        encoded_file = base64.b64encode(file.read()).decode('utf-8')
+        response = requests.put(BASE_URL + "assets.json", json={
+            "asset": {
+                "key": f"assets/{file.filename}",
+                "attachment": encoded_file
+            }
+        }, headers={
+            "X-Shopify-Access-Token": PASSWORD
+        })
+
+        if response.status_code == 200:
+            return jsonify({"message": f"Image '{file.filename}' uploaded successfully!"})
+        else:
+            return jsonify({"error": response.json()}), 400
+    except Exception as e:
+        app.logger.error(f"Error in /upload-image: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
 def get_theme_id():
     try:
-        # Wysłanie żądania do Shopify API w celu pobrania listy motywów
         response = requests.get(BASE_URL + "themes.json", headers={
             "X-Shopify-Access-Token": PASSWORD
         })
-        app.logger.info(f"Shopify API response status: {response.status_code}")
-        app.logger.info(f"Shopify API response: {response.text}")
-        
-        # Sprawdzenie, czy odpowiedź jest poprawna
         if response.status_code == 200:
             themes = response.json().get("themes", [])
             for theme in themes:
-                if theme.get("role") == "main":  # Szukamy aktywnego motywu
+                if theme.get("role") == "main":
                     return theme.get("id")
-            app.logger.warning("No active theme found in Shopify store.")
-            return None
-        else:
-            app.logger.error(f"Error fetching themes: {response.text}")
-            return None
+        return None
     except Exception as e:
-        app.logger.error(f"Exception in get_theme_id: {e}")
+        app.logger.error(f"Error fetching theme ID: {e}")
         return None
 
 if __name__ == "__main__":

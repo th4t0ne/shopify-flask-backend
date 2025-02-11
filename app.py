@@ -1,175 +1,136 @@
 import os
 import requests
 from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+import openai
+import logging
 
-# Inicjalizacja aplikacji Flask
+# Load environment variables from .env file
+load_dotenv()
+
+# Flask app initialization
 app = Flask(__name__)
 
-# Konfiguracja Shopify API
-PASSWORD = os.environ.get("SHOPIFY_API_TOKEN")
-SHOP_NAME = os.environ.get("SHOP_NAME", "hhwh1d-2p.myshopify.com")
-API_VERSION = "2023-01"
-BASE_URL = f"https://{SHOP_NAME}/admin/api/{API_VERSION}/"
-UPLOAD_FOLDER = "uploads"
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# Shopify API credentials
+SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_API_TOKEN")
+SHOP_NAME = os.getenv("SHOP_NAME")
+SHOPIFY_API_VERSION = "2023-01"
+BASE_URL = f"https://{SHOP_NAME}/admin/api/{SHOPIFY_API_VERSION}"
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# OpenAI API credentials
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
-# Endpoint: Strona główna
-@app.route('/')
-def home():
-    return "Welcome to the Shopify Flask Backend!", 200
+# Logger configuration
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app")
 
-# Endpoint: Pobieranie treści pliku theme.liquid
-@app.route('/get-theme', methods=['GET'])
-def get_theme():
-    try:
-        theme_id = get_theme_id()
-        if not theme_id:
-            return jsonify({"error": "Could not fetch theme ID"}), 400
+# Verify required environment variables
+REQUIRED_ENV_VARS = ["SHOPIFY_ACCESS_TOKEN", "SHOP_NAME", "OPENAI_API_KEY"]
+missing_vars = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+if missing_vars:
+    raise EnvironmentError(f"Brakujące klucze środowiskowe: {', '.join(missing_vars)}")
 
-        asset_key = "layout/theme.liquid"
-        response = requests.get(
-            BASE_URL + f"themes/{theme_id}/assets.json", 
-            params={"asset[key]": asset_key}, 
-            headers={"X-Shopify-Access-Token": PASSWORD}
-        )
 
-        if response.status_code == 200:
-            asset_content = response.json().get("asset", {}).get("value", "")
-            return jsonify({"theme_content": asset_content}), 200
-        else:
-            return jsonify({"error": response.json()}), 400
-    except Exception as e:
-        return jsonify({"error": f"Internal server error: {e}"}), 500
-
-# Endpoint: Modyfikacja pliku theme.liquid
+# Endpoint to modify the Shopify theme based on user input
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
+    """
+    Endpoint for modifying Shopify theme based on user input.
+    """
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({"error": "Invalid JSON or missing Content-Type header"}), 400
+        if not data or 'prompt' not in data:
+            return jsonify({"error": "Missing 'prompt' in request data"}), 400
 
-        prompt = data.get("prompt", "").lower()
-        theme_id = get_theme_id()
-        if not theme_id:
-            return jsonify({"error": "Could not fetch theme ID"}), 400
+        prompt = data['prompt']
+        logger.info(f"Received prompt: {prompt}")
 
-        # Pobranie bieżącej zawartości pliku theme.liquid
+        # Process the prompt with GPT to generate changes
+        gpt_response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=f"Given the Shopify theme context, implement the following: {prompt}",
+            max_tokens=500
+        )
+        new_content = gpt_response['choices'][0]['text'].strip()
+
+        logger.info("GPT generated content successfully")
+
+        # Update Shopify theme.liquid
         asset_key = "layout/theme.liquid"
-        response = requests.get(
-            BASE_URL + f"themes/{theme_id}/assets.json", 
-            params={"asset[key]": asset_key}, 
-            headers={"X-Shopify-Access-Token": PASSWORD}
-        )
-
-        if response.status_code != 200:
-            return jsonify({"error": response.json()}), 400
-
-        current_content = response.json().get("asset", {}).get("value", "")
-
-        # Dodanie brakujących placeholderów, jeśli ich brakuje
-        if "{{ content_for_header }}" not in current_content:
-            current_content = current_content.replace(
-                "<head>",
-                "<head>\n    {{ content_for_header }}"
-            )
-        if "{{ content_for_layout }}" not in current_content:
-            current_content = current_content.replace(
-                "<body>",
-                "<body>\n    {{ content_for_layout }}"
-            )
-
-        # Aktualizacja zawartości na podstawie promptu
-        if "change the font to" in prompt:
-            font = prompt.split("to")[1].strip()
-            new_content = current_content.replace(
-                "{{ content_for_header }}",
-                f"""
-                {{% comment %}} Custom font style added {{% endcomment %}}
-                {{ content_for_header }}
-                <style>
-                    body {{
-                        font-family: {font}, sans-serif;
-                    }}
-                </style>
-                """
-            )
-        else:
-            return jsonify({"error": "Unsupported prompt"}), 400
-
-        # Zapisanie zmienionej zawartości w Shopify
-        asset_data = {
-            "asset": {
-                "key": asset_key,
-                "value": new_content
-            }
-        }
-
         response = requests.put(
-            BASE_URL + f"themes/{theme_id}/assets.json", 
-            json=asset_data, 
-            headers={"X-Shopify-Access-Token": PASSWORD}
+            f"{BASE_URL}/themes/<YOUR_THEME_ID>/assets.json",
+            json={
+                "asset": {
+                    "key": asset_key,
+                    "value": new_content
+                }
+            },
+            headers={
+                "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+                "Content-Type": "application/json"
+            }
         )
 
         if response.status_code == 200:
-            return jsonify({"message": f"Theme asset '{asset_key}' updated successfully!"}), 200
+            logger.info("Theme updated successfully")
+            return jsonify({"success": "Theme updated successfully"}), 200
         else:
-            return jsonify({"error": response.json()}), 400
+            logger.error(f"Failed to update theme: {response.text}")
+            return jsonify({"error": response.json()}), response.status_code
 
     except Exception as e:
-        return jsonify({"error": f"Internal server error: {e}"}), 500
+        logger.exception(f"Error modifying theme: {e}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-# Endpoint: Wgrywanie zdjęcia
-@app.route('/upload-image', methods=['POST'])
-def upload_image():
+
+# Endpoint to retrieve logs
+@app.route('/logs', methods=['GET'])
+def get_logs():
+    """
+    Retrieve application logs.
+    """
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file part"}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
-
-        filename = secure_filename(file.filename)
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
-        # Upload zdjęcia do Shopify
-        with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'rb') as f:
-            response = requests.post(
-                BASE_URL + "images.json",
-                headers={"X-Shopify-Access-Token": PASSWORD},
-                files={"image": f}
-            )
-
-        if response.status_code == 200:
-            return jsonify({"message": "Image uploaded successfully!", "data": response.json()}), 200
-        else:
-            return jsonify({"error": response.json()}), 400
-
+        with open("app.log", "r") as log_file:
+            logs = log_file.readlines()
+        return jsonify({"logs": logs}), 200
+    except FileNotFoundError:
+        return jsonify({"error": "No logs found"}), 404
     except Exception as e:
-        return jsonify({"error": f"Internal server error: {e}"}), 500
+        logger.exception(f"Error retrieving logs: {e}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-# Funkcja: Pobieranie ID motywu
-def get_theme_id():
+
+# Endpoint to test Shopify API and GPT integration
+@app.route('/test-integration', methods=['POST'])
+def test_integration():
+    """
+    Test the Shopify API and GPT integration.
+    """
     try:
+        # Test Shopify API
         response = requests.get(
-            BASE_URL + "themes.json", 
-            headers={"X-Shopify-Access-Token": PASSWORD}
+            f"{BASE_URL}/themes.json",
+            headers={"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
         )
-        if response.status_code == 200:
-            themes = response.json().get("themes", [])
-            for theme in themes:
-                if theme.get("role") == "main":
-                    return theme.get("id")
-        return None
+        if response.status_code != 200:
+            logger.error("Shopify API test failed")
+            return jsonify({"error": "Shopify API test failed"}), response.status_code
+
+        # Test OpenAI API
+        gpt_response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt="This is a test prompt",
+            max_tokens=10
+        )
+        logger.info("OpenAI API test succeeded")
+
+        return jsonify({"success": "Integration test passed"}), 200
     except Exception as e:
-        app.logger.error(f"Error fetching theme ID: {e}")
-        return None
+        logger.exception(f"Integration test failed: {e}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

@@ -65,7 +65,6 @@ def modify_theme():
 
 def get_theme_id():
     try:
-        # Wysłanie żądania do Shopify API w celu pobrania motywów
         response = requests.get(BASE_URL + "themes.json", headers={
             "X-Shopify-Access-Token": PASSWORD
         })

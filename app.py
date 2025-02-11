@@ -72,33 +72,31 @@ def modify_theme():
 
         current_content = response.json().get("asset", {}).get("value", "")
 
+        # Dodanie brakujących placeholderów, jeśli ich brakuje
+        if "{{ content_for_header }}" not in current_content:
+            current_content = current_content.replace(
+                "<head>",
+                "<head>\n    {{ content_for_header }}"
+            )
+        if "{{ content_for_layout }}" not in current_content:
+            current_content = current_content.replace(
+                "<body>",
+                "<body>\n    {{ content_for_layout }}"
+            )
+
         # Tworzenie nowej zawartości na podstawie promptu
-        new_content = current_content
         if "change the font to" in prompt:
             font = prompt.split("to")[1].strip()
             new_content = current_content.replace(
                 "{{ content_for_header }}",
                 f"""
-                {{% comment %}} Custom styles injected {{% endcomment %}}
+                {{% comment %}} Custom font style added {{% endcomment %}}
                 {{ content_for_header }}
                 <style>
                     body {{
                         font-family: {font}, sans-serif;
                     }}
                 </style>
-                """
-            )
-        elif "change the background color to" in prompt:
-            bg_color = prompt.split("to")[1].strip()
-            new_content = current_content.replace(
-                "{{ content_for_layout }}",
-                f"""
-                <style>
-                    body {{
-                        background-color: {bg_color};
-                    }}
-                </style>
-                {{ content_for_layout }}
                 """
             )
         else:

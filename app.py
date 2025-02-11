@@ -5,7 +5,7 @@ import os
 app = Flask(__name__)
 
 # Shopify API credentials
-PASSWORD = os.environ.get("SHOPIFY_API_TOKEN")  # Admin API Access Token ze zmiennej środowiskowej
+PASSWORD = os.environ.get("SHOPIFY_API_TOKEN")  # Admin API Access Token
 SHOP_NAME = "hhwh1d-2p.myshopify.com"  # Twój sklep Shopify
 BASE_URL = f"https://{SHOP_NAME}/admin/api/2023-01/"
 
@@ -67,6 +67,29 @@ def modify_theme():
         app.logger.error(f"Error in /modify-theme: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
+def get_theme_id():
+    try:
+        # Wysłanie żądania do Shopify API w celu pobrania listy motywów
+        response = requests.get(BASE_URL + "themes.json", headers={
+            "X-Shopify-Access-Token": PASSWORD
+        })
+        app.logger.info(f"Shopify API response status: {response.status_code}")
+        app.logger.info(f"Shopify API response: {response.text}")
+        
+        # Sprawdzenie, czy odpowiedź jest poprawna
+        if response.status_code == 200:
+            themes = response.json().get("themes", [])
+            for theme in themes:
+                if theme.get("role") == "main":  # Szukamy aktywnego motywu
+                    return theme.get("id")
+            app.logger.warning("No active theme found in Shopify store.")
+            return None
+        else:
+            app.logger.error(f"Error fetching themes: {response.text}")
+            return None
+    except Exception as e:
+        app.logger.error(f"Exception in get_theme_id: {e}")
+        return None
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

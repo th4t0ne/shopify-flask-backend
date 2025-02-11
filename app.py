@@ -11,7 +11,6 @@ SHOP_NAME = os.environ.get("SHOP_NAME", "hhwh1d-2p.myshopify.com")
 API_VERSION = "2023-01"
 BASE_URL = f"https://{SHOP_NAME}/admin/api/{API_VERSION}/"
 
-# Endpoint główny
 @app.route('/')
 def home():
     """
@@ -19,17 +18,14 @@ def home():
     """
     return "Welcome to the Shopify Flask Backend!", 200
 
-# Pobieranie pliku theme.liquid
 @app.route('/get-theme', methods=['GET'])
 def get_theme():
     """
     Pobieranie zawartości pliku theme.liquid z Shopify.
     """
     try:
-        app.logger.info("Fetching theme ID...")
         theme_id = get_theme_id()
         if not theme_id:
-            app.logger.error("Could not fetch theme ID.")
             return jsonify({"error": "Could not fetch theme ID"}), 400
 
         asset_key = "layout/theme.liquid"
@@ -47,12 +43,10 @@ def get_theme():
     except Exception as e:
         return jsonify({"error": f"Internal server error: {e}"}), 500
 
-# Modyfikacja pliku theme.liquid
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
     """
     Modyfikacja zawartości pliku theme.liquid na Shopify.
-    Obsługuje zmiany kolorów, czcionek i dodawanie nowych sekcji.
     """
     try:
         data = request.get_json()
@@ -61,80 +55,56 @@ def modify_theme():
 
         prompt = data.get("prompt", "").lower()
         asset_key = "layout/theme.liquid"
-        new_content = ""
+        theme_id = get_theme_id()
 
-        # Zmiana koloru tła
-        if "change the background color to" in prompt:
-            bg_color = prompt.split("to")[1].strip()
-            new_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
+        if not theme_id:
+            return jsonify({"error": "Could not fetch theme ID"}), 400
+
+        # Pobierz bieżącą zawartość pliku theme.liquid
+        response = requests.get(BASE_URL + f"themes/{theme_id}/assets.json", params={
+            "asset[key]": asset_key
+        }, headers={
+            "X-Shopify-Access-Token": PASSWORD
+        })
+
+        if response.status_code != 200:
+            return jsonify({"error": response.json()}), 400
+
+        current_content = response.json().get("asset", {}).get("value", "")
+
+        # Tworzenie nowej zawartości na podstawie promptu
+        new_content = current_content
+        if "change the font to" in prompt:
+            font = prompt.split("to")[1].strip()
+            new_content = current_content.replace(
+                "{{ content_for_header }}",
+                f"""
+                {{% comment %}} Custom styles injected {{% endcomment %}}
                 {{ content_for_header }}
+                <style>
+                    body {{
+                        font-family: {font}, sans-serif;
+                    }}
+                </style>
+                """
+            )
+        elif "change the background color to" in prompt:
+            bg_color = prompt.split("to")[1].strip()
+            new_content = current_content.replace(
+                "{{ content_for_layout }}",
+                f"""
                 <style>
                     body {{
                         background-color: {bg_color};
                     }}
                 </style>
-            </head>
-            <body>
                 {{ content_for_layout }}
-            </body>
-            </html>
-            """
-
-        # Zmiana czcionki
-        elif "change the font to" in prompt:
-            font = prompt.split("to")[1].strip()
-            new_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                {{ content_for_header }}
-                <style>
-                    body {{
-                        font-family: {font};
-                    }}
-                </style>
-            </head>
-            <body>
-                {{ content_for_layout }}
-            </body>
-            </html>
-            """
-
-        # Dodanie nowej sekcji promocyjnej
-        elif "add a promo section with text" in prompt:
-            text = prompt.split("with text")[1].strip()
-            new_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                {{ content_for_header }}
-                <style>
-                    .promo {{
-                        background-color: lightblue;
-                        padding: 20px;
-                        text-align: center;
-                        font-size: 24px;
-                        font-weight: bold;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="promo">{text}</div>
-                {{ content_for_layout }}
-            </body>
-            </html>
-            """
-
+                """
+            )
         else:
             return jsonify({"error": "Unsupported prompt"}), 400
 
-        theme_id = get_theme_id()
-        if not theme_id:
-            return jsonify({"error": "Could not fetch theme ID"}), 400
-
+        # Zapisz zmienioną zawartość do Shopify
         asset_data = {
             "asset": {
                 "key": asset_key,
@@ -150,60 +120,10 @@ def modify_theme():
             return jsonify({"message": f"Theme asset '{asset_key}' updated successfully!"}), 200
         else:
             return jsonify({"error": response.json()}), 400
+
     except Exception as e:
         return jsonify({"error": f"Internal server error: {e}"}), 500
 
-# Przesyłanie obrazów do Shopify
-@app.route('/upload-image', methods=['POST'])
-def upload_image():
-    """
-    Przesyłanie obrazu do Shopify.
-    """
-    try:
-        image = request.files['file']
-        asset_key = f"assets/{image.filename}"
-        asset_data = {
-            "asset": {
-                "key": asset_key,
-                "attachment": image.read().decode('base64')
-            }
-        }
-
-        theme_id = get_theme_id()
-        if not theme_id:
-            return jsonify({"error": "Could not fetch theme ID"}), 400
-
-        response = requests.put(BASE_URL + f"themes/{theme_id}/assets.json", json=asset_data, headers={
-            "X-Shopify-Access-Token": PASSWORD
-        })
-
-        if response.status_code == 200:
-            return jsonify({"message": f"Image {image.filename} uploaded successfully!"}), 200
-        else:
-            return jsonify({"error": response.json()}), 400
-    except Exception as e:
-        return jsonify({"error": f"Internal server error: {e}"}), 500
-
-# Generowanie sekcji na podstawie promptu
-@app.route('/generate-section', methods=['POST'])
-def generate_section():
-    """
-    Tworzy nową sekcję w Shopify na podstawie promptu użytkownika.
-    """
-    try:
-        data = request.get_json()
-        prompt = data.get("prompt", "")
-        generated_html = f"""
-        <div class="generated-section">
-            <h1>{prompt}</h1>
-            <button>Buy Now</button>
-        </div>
-        """
-        return jsonify({"message": "Section generated", "html": generated_html}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Funkcja pomocnicza do pobierania ID głównego motywu
 def get_theme_id():
     """
     Pobieranie ID głównego motywu z Shopify.
@@ -221,7 +141,6 @@ def get_theme_id():
     except Exception as e:
         return None
 
-# Uruchomienie aplikacji
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

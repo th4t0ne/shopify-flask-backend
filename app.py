@@ -10,10 +10,6 @@ PASSWORD = os.environ.get("SHOPIFY_API_TOKEN")  # Admin API Access Token
 SHOP_NAME = "hhwh1d-2p.myshopify.com"  # Oryginalny adres sklepu Shopify
 BASE_URL = f"https://{SHOP_NAME}/admin/api/2023-01/"
 
-@app.route('/')
-def home():
-    return "Welcome to the Shopify Flask Backend! Use /modify-theme or /upload-image to send requests.", 200
-
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
     try:
@@ -26,50 +22,14 @@ def modify_theme():
         asset_key = "layout/theme.liquid"
         new_content = ""
 
-        # Przetwarzanie promptów
-        if "change the header to" in prompt:
-            header_color = prompt.split("to")[1].strip()
-            new_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                {{% content_for_header %}}
-                <style>
-                    h1 {{
-                        color: {header_color};
-                    }}
-                </style>
-            </head>
-            <body>
-                <h1>Welcome to our Store</h1>
-                {{% content_for_layout %}}
-            </body>
-            </html>
-            """
-        elif "add this image to the homepage" in prompt:
-            image_url = data.get("image_url", "")
-            if not image_url:
-                return jsonify({"error": "Image URL is required for this prompt"}), 400
-            new_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                {{% content_for_header %}}
-            </head>
-            <body>
-                <h1>Welcome to our Store</h1>
-                <img src="{image_url}" alt="Homepage Image" />
-                {{% content_for_layout %}}
-            </body>
-            </html>
-            """
-        elif "change the background color to" in prompt:
+        # Interpretacja promptów
+        if "change the background color to" in prompt:
             bg_color = prompt.split("to")[1].strip()
             new_content = f"""
             <!DOCTYPE html>
             <html>
             <head>
-                {{% content_for_header %}}
+                {{ content_for_header }}
                 <style>
                     body {{
                         background-color: {bg_color};
@@ -77,12 +37,38 @@ def modify_theme():
                 </style>
             </head>
             <body>
-                {{% content_for_layout %}}
+                {{ content_for_layout }}
             </body>
             </html>
             """
         else:
             return jsonify({"error": "Unsupported prompt"}), 400
+
+        # Pobierz ID głównego motywu
+        theme_id = get_theme_id()
+        if not theme_id:
+            return jsonify({"error": "Could not fetch theme ID"}), 400
+
+        # Przygotowanie danych do wysłania
+        asset_data = {
+            "asset": {
+                "key": asset_key,
+                "value": new_content
+            }
+        }
+
+        # Wyślij zmiany do Shopify
+        response = requests.put(BASE_URL + f"themes/{theme_id}/assets.json", json=asset_data, headers={
+            "X-Shopify-Access-Token": PASSWORD
+        })
+        if response.status_code == 200:
+            return jsonify({"message": f"Theme asset '{asset_key}' updated successfully!"})
+        else:
+            return jsonify({"error": response.json()}), 400
+    except Exception as e:
+        app.logger.error(f"Error in /modify-theme: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
 
         # Pobierz ID głównego motywu
         theme_id = get_theme_id()

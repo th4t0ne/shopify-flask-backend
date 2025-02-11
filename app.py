@@ -39,6 +39,7 @@ def get_theme():
             asset_content = response.json().get("asset", {}).get("value", "")
             return jsonify({"theme_content": asset_content}), 200
         else:
+            app.logger.error(f"Error fetching theme content: {response.json()}")
             return jsonify({"error": response.json()}), 400
     except Exception as e:
         app.logger.exception("Internal server error")
@@ -128,7 +129,7 @@ def modify_theme():
         if response.status_code == 200:
             return jsonify({"message": f"Theme asset '{asset_key}' updated successfully!"}), 200
         else:
-            app.logger.error(f"Error updating asset content for '{asset_key}': {response.status_code} {response.reason} - {response.json()}")
+            app.logger.error(f"Error updating asset content for '{asset_key}': {response.status_code} {response.reason} - {response.text}")
             return jsonify({"error": response.json()}), 400
 
     except Exception as e:
@@ -148,6 +149,7 @@ def get_theme_id():
             for theme in themes:
                 if theme.get("role") == "main":
                     return theme.get("id")
+        app.logger.error(f"Could not find the main theme: {response.json()}")
         return None
     except Exception as e:
         app.logger.exception("Error fetching theme ID")

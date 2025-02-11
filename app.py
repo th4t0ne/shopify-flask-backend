@@ -16,33 +16,46 @@ def home():
 @app.route('/modify-theme', methods=['POST'])
 def modify_theme():
     try:
-        # Pobierz JSON z żądania
+        # Pobierz dane JSON z zapytania
         data = request.get_json()
         if data is None:
             return jsonify({"error": "Invalid JSON or missing Content-Type header"}), 400
         
-        # Wyciągnij prompt
+        # Sprawdź, czy prompt dotyczy zmiany tła
         prompt = data.get("prompt", "")
         if "background color" in prompt and "theme.liquid" in prompt:
             asset_key = "layout/theme.liquid"
-            new_content = "<style> body { background-color: black; } </style>"
+            new_content = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                {{ content_for_header }}
+                <style>
+                    body {
+                        background-color: black;
+                    }
+                </style>
+            </head>
+            <body>
+                {{ content_for_layout }}
+            </body>
+            </html>
+            """
         else:
             return jsonify({"error": "Unsupported prompt"}), 400
 
-        # Pobranie ID głównego motywu
+        # Pobierz ID głównego motywu
         theme_id = get_theme_id()
         if not theme_id:
             return jsonify({"error": "Could not fetch theme ID"}), 400
 
-        # Przygotowanie danych do wysłania
+        # Wyślij zmiany do Shopify
         asset_data = {
             "asset": {
                 "key": asset_key,
                 "value": new_content
             }
         }
-
-        # Wysłanie żądania do Shopify API
         response = requests.put(BASE_URL + f"themes/{theme_id}/assets.json", json=asset_data, headers={
             "X-Shopify-Access-Token": PASSWORD
         })
@@ -54,27 +67,6 @@ def modify_theme():
         app.logger.error(f"Error in /modify-theme: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
-def get_theme_id():
-    try:
-        response = requests.get(BASE_URL + "themes.json", headers={
-            "X-Shopify-Access-Token": PASSWORD
-        })
-        app.logger.info(f"Shopify API status: {response.status_code}")
-        app.logger.info(f"Shopify API response: {response.text}")
-        
-        if response.status_code == 200:
-            themes = response.json().get("themes", [])
-            for theme in themes:
-                if theme.get("role") == "main":
-                    return theme.get("id")
-            app.logger.warning("No main theme found in Shopify store.")
-            return None
-        else:
-            app.logger.error(f"Error fetching themes: {response.text}")
-            return None
-    except Exception as e:
-        app.logger.error(f"Exception in get_theme_id: {e}")
-        return None
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

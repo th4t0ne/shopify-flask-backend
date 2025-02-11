@@ -66,4 +66,21 @@ def get_theme():
     try:
         theme_id = get_theme_id()  # Fetch the ID of the main theme
         if not theme_id:
-            return jsonify({"error": "Could not fetc
+            return jsonify({"error": "Could not fetch theme ID"}), 400
+
+        asset_key = "layout/theme.liquid"
+        response = requests.get(BASE_URL + f"themes/{theme_id}/assets.json", params={
+            "asset[key]": asset_key
+        }, headers={
+            "X-Shopify-Access-Token": PASSWORD
+        })
+
+        if response.status_code == 200:
+            asset_content = response.json().get("asset", {}).get("value", "")
+            return jsonify({"theme_content": asset_content}), 200
+        else:
+            app.logger.error(f"Error fetching asset: {response.json()}")
+            return jsonify({"error": response.json()}), 400
+    except Exception as e:
+        app.logger.error(f"Error fetching theme.liquid: {e}")
+        return jsonify({"error": "Internal server error"}), 500
